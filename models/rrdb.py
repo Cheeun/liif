@@ -62,6 +62,7 @@ class RRDBNet(nn.Module):
     # def __init__(self, args, conv=default_conv):
     # def __init__(self, in_nc, out_nc, nf, nb, gc=32):
         super(RRDBNet, self).__init__()
+        self.args = args
         in_nc = args.in_nc
         out_nc = args.out_nc
         nf = args.nf
@@ -74,28 +75,38 @@ class RRDBNet(nn.Module):
         self.RRDB_trunk = make_layer(RRDB_block_f, nb)
         self.trunk_conv = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
         #### upsampling
-        self.upconv1 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
-        self.upconv2 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
-        self.HRconv = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
-        self.conv_last = nn.Conv2d(nf, out_nc, 3, 1, 1, bias=True)
+        if args.no_upsampling:
+            self.out_dim = nf
+        else:
+            self.out_dim = args.in_nc
 
-        self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
+            self.upconv1 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
+            self.upconv2 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
+            self.HRconv = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
+            self.conv_last = nn.Conv2d(nf, out_nc, 3, 1, 1, bias=True)
+
+            self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
 
     def forward(self, x):
         fea = self.conv_first(x)
         trunk = self.trunk_conv(self.RRDB_trunk(fea))
         fea = fea + trunk
         # so the scale is 4 ..?
-        fea = self.lrelu(self.upconv1(F.interpolate(fea, scale_factor=2, mode='nearest')))
-        fea = self.lrelu(self.upconv2(F.interpolate(fea, scale_factor=2, mode='nearest')))
-        out = self.conv_last(self.lrelu(self.HRconv(fea)))
+        if self.args.no_upsampling:
+            out = fea
+        else:
+            fea = self.lrelu(self.upconv1(F.interpolate(fea, scale_factor=2, mode='nearest')))
+            fea = self.lrelu(self.upconv2(F.interpolate(fea, scale_factor=2, mode='nearest')))
+            out = self.conv_last(self.lrelu(self.HRconv(fea)))
 
         return out
 
 @register('rrdb')
-def make_rrdb(num_feat=64, num_grow_ch=32, num_block=23, num_in_ch=3, num_out_ch=3,scale=4):
+def make_rrdb(num_feat=64, num_grow_ch=32, num_block=23, num_in_ch=3, num_out_ch=3, no_upsampling=True):
     args = Namespace()
-    args.scale = [scale]
+    # args.scale = [scale]
+    args.no_upsampling = no_upsampling
+
     args.nf = num_feat
     args.gc = num_grow_ch
     args.in_nc = num_in_ch
